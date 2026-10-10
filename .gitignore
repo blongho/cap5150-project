@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+# Data is downloaded by scripts; never commit it
+data/raw/
+data/processed/
+# LaTeX build output
+paper/**/*.aux
+paper/**/*.log
+paper/**/*.out
+paper/**/*.bbl
+paper/**/*.blg
+.DS_Store
+cap5150_project-proposal.pdf
+implementation-plan.md  

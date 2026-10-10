@@ -1,0 +1,36 @@
+# Paths are relative to the repository root.
+data:
+  raw_dir: data/raw
+  malware_csv: real_malware_v1.csv
+  benign_csv: real_legitimate_v1.csv
+  processed_path: data/processed/real_device.parquet
+  date_column: HighestModDate     # as in Sahin et al. (2025)
+  min_year: 2008
+  max_year: 2020
+
+permissions:
+  list_path: data/deprecated_permissions.csv
+  aosp_dir: data/raw/aosp
+  min_api: 21                     # API 21-34: matches the 10 deprecated permissions in Sabbah et al.
+  max_api: 34
+  categories: [deprecated, restricted]
+
+split:
+  train_end_year: 2013            # train on 2008-2013 (inclusive)
+  test_years: [2014, 2015, 2016, 2017, 2018, 2019, 2020]
+
+model:
+  name: random_forest
+  n_estimators: 200
+  class_weight: balanced
+  n_jobs: -1
+
+experiment:
+  seeds: [0, 1, 2, 3, 4]
+  results_dir: results
+  figures_dir: figures
+
+replication:
+  test_size: 0.2
+  seed: 42
+  reference_accuracy: 0.954       # Sabbah et al., RF, all 166 permissions, real device
