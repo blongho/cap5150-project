@@ -1,28 +1,52 @@
 # Reproducible pipeline for the CAP5150 project.
-#   make setup      create the virtual environment and install pinned dependencies
-#   make all        download data, build the permission list, prepare data, run experiments
-#   make test lint  run unit tests and the linter
-# Override the interpreter or environment location if needed:
-#   make setup PYTHON=python3.11 VENV=/path/to/venv
+#
+#   make reproduce   ONE COMMAND: environment, data, experiments, verification, tests
+#
+# Individual steps:
+#   make setup       create the virtual environment from requirements.lock (Python 3.10-3.13)
+#   make data        download KronoDroid + AOSP manifests and verify SHA-256 checksums
+#   make permissions build data/deprecated_permissions.csv from the AOSP manifests
+#   make prepare     clean the data -> data/processed/real_device.parquet
+#   make milestone   run the milestone experiments -> results/, figures/
+#   make verify      compare results/ with configs/expected_results.json
+#   make check       lint + unit tests
+#   make lock        regenerate requirements.lock from requirements.txt
+#
+# Docker (no local Python needed):
+#   make docker-build && make docker-reproduce
+#
+# Overrides: make setup PYTHON=python3.11 VENV=/path/to/venv CONFIG=configs/other.yaml
 
-PYTHON ?= python3
-VENV   ?= .venv
-CONFIG ?= configs/base.yaml
+PYTHON      ?= python3
+VENV        ?= .venv
+CONFIG      ?= configs/base.yaml
 PYTEST_ARGS ?=
+IMAGE       ?= cap5150-drift:1.0
 
-PY   := $(VENV)/bin/python
-PIP  := $(VENV)/bin/pip
-RUN  := PYTHONPATH=src $(PY)
+PY  := $(VENV)/bin/python
+PIP := $(VENV)/bin/pip
+RUN := PYTHONHASHSEED=0 PYTHONPATH=src $(PY)
 
-.PHONY: help setup data permissions prepare milestone all test lint check clean clean-data
+.PHONY: help reproduce setup check-python data permissions prepare milestone verify all \
+        test lint check lock docker-build docker-reproduce clean clean-data
 
 help:
-	@grep -E '^#' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '2,19p' Makefile | sed 's/^# \{0,1\}//'
 
-$(VENV)/.installed: requirements.txt
+reproduce: all verify check
+	@echo "Reproduction complete: results/ and figures/ match configs/expected_results.json."
+
+check-python:
+	@$(PYTHON) -c 'import sys; v = sys.version_info[:2]; \
+	ok = (3, 10) <= v <= (3, 13); \
+	print("Using Python %d.%d" % v); \
+	sys.exit(0 if ok else "Python 3.10-3.13 is required. Install one and run: make setup PYTHON=python3.12")'
+
+$(VENV)/.installed: requirements.lock
+	@$(MAKE) --no-print-directory check-python
 	$(PYTHON) -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
+	$(PIP) install --upgrade "pip==24.2"
+	$(PIP) install -r requirements.lock
 	touch $@
 
 setup: $(VENV)/.installed
@@ -41,6 +65,9 @@ milestone: prepare permissions
 
 all: milestone
 
+verify: setup
+	$(RUN) scripts/verify_results.py
+
 test: setup
 	PYTHONPATH=src $(VENV)/bin/pytest -q $(PYTEST_ARGS)
 
@@ -48,6 +75,17 @@ lint: setup
 	$(VENV)/bin/ruff check src scripts tests
 
 check: lint test
+
+lock: check-python
+	$(PYTHON) -m venv /tmp/cap5150-lock && /tmp/cap5150-lock/bin/pip install -q -r requirements.txt
+	/tmp/cap5150-lock/bin/pip freeze | sort > requirements.lock.new
+	@echo "Review requirements.lock.new, add version markers if needed, then replace requirements.lock"
+
+docker-build:
+	docker build -t $(IMAGE) .
+
+docker-reproduce:
+	docker run --rm -v "$(CURDIR)":/work -w /work $(IMAGE) sh -c "touch /opt/venv/.installed && make reproduce VENV=/opt/venv"
 
 clean:
 	rm -rf results/* figures/* .pytest_cache .ruff_cache

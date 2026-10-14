@@ -1,0 +1,54 @@
+{
+  "_comment": "Reference values from the milestone run (RF, 5 seeds). scripts/verify_results.py compares a fresh run against these.",
+  "tolerance": 0.002,
+  "n_apps": 76708,
+  "n_malware": 40930,
+  "year_totals": {
+    "2008": 1032,
+    "2009": 643,
+    "2010": 5353,
+    "2011": 26218,
+    "2012": 7909,
+    "2013": 7979,
+    "2014": 8647,
+    "2015": 2171,
+    "2016": 3228,
+    "2017": 5513,
+    "2018": 4964,
+    "2019": 1716,
+    "2020": 1335
+  },
+  "listed_permissions": [
+    "ACCESS_BACKGROUND_LOCATION",
+    "BIND_CARRIER_MESSAGING_SERVICE",
+    "BIND_CHOOSER_TARGET_SERVICE",
+    "GET_TASKS",
+    "PERSISTENT_ACTIVITY",
+    "PROCESS_OUTGOING_CALLS",
+    "READ_CALL_LOG",
+    "READ_EXTERNAL_STORAGE",
+    "READ_INPUT_STATE",
+    "READ_SMS",
+    "RECEIVE_MMS",
+    "RECEIVE_SMS",
+    "RECEIVE_WAP_PUSH",
+    "RESTART_PACKAGES",
+    "SEND_SMS",
+    "SET_PREFERRED_APPLICATIONS",
+    "SMS_FINANCIAL_TRANSACTIONS",
+    "USE_FINGERPRINT",
+    "WRITE_CALL_LOG",
+    "WRITE_EXTERNAL_STORAGE"
+  ],
+  "replication_accuracy": 0.9529,
+  "aut_f1_mean": {
+    "unmasked": 0.8848,
+    "masked": 0.7962,
+    "pruned": 0.8783
+  },
+  "aut_recall_mean": {
+    "unmasked": 0.8886,
+    "masked": 0.7307,
+    "pruned": 0.8795
+  }
+}
