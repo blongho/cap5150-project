@@ -57,6 +57,12 @@ experiment:
   malware_share_10pct: true       # rerun core conditions with test years cut to the share below
   malware_share_target: 0.10      # malware share of each test year in the _10pct variant
 
+# Replication check (make analysis): default RF, random stratified split, all 166 permissions.
+replication:
+  test_size: 0.2                  # held-out share of the random split
+  seed: 42                        # split and RF seed
+  reference_accuracy: 0.954       # Sabbah et al., RF, all 166 permissions, real device
+
 # KS drift tests (make ks_tests): per-permission and RF-score tests, train vs each test year.
 ks:
   alpha: 0.05                     # Benjamini-Hochberg false discovery rate

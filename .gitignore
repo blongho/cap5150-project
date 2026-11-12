@@ -8,8 +8,9 @@ data/raw/
 data/processed/
 # Paper sources and generated reports
 /paper/
-# Generated experiment results
+# Generated experiment results and figures
 /results/
+/figures/
 .DS_Store
 cap5150_project-proposal.pdf
 implementation-plan.md  

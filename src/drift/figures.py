@@ -5,6 +5,7 @@
     aut_summary.pdf/.png       AUT(F1) of the 12 core cells (dot plot, error bars = std)
     aut_table.tex              core AUT table with the labels each defense used
     aut_extras_table.tex       separate and timed masking (written when those CSVs exist)
+    other tables / numbers.tex see drift.tables (each written when its inputs exist)
 
 Colors are the first categorical slots of a CVD-validated palette, in fixed order. Aqua and
 yellow are below 3:1 contrast on white, so every series also has its own marker and line
@@ -22,6 +23,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from drift.experiments import CORE_CONDITIONS, DEFENSES, MODELS, cell_name  # noqa: E402
+from drift.tables import make_tables  # noqa: E402
 
 MODEL_LABELS = {"rf": "RF", "mlp": "MLP"}
 DEFENSE_LABELS = {"none": "None", "pruning": "Pruning", "retrain": "5\\% retraining"}
@@ -166,4 +168,4 @@ def make_all(results_dir: Path, figures_dir: Path) -> list[Path]:
     extras = aut_extras_table(results_dir, figures_dir)
     if extras is not None:
         out.append(extras)
-    return out
+    return out + make_tables(results_dir, figures_dir)

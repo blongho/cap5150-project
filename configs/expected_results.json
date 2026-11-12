@@ -1,8 +1,9 @@
 {
-  "_comment": "Reference values from the full experiment run (5 seeds; RF and MLP x none/pruning/retrain x unmasked/masked). scripts/verify_results.py compares a fresh run against these. MLP values were produced on Linux (Docker, torch CPU).",
+  "_comment": "Reference values from the full clean run (5 seeds; RF and MLP x none/pruning/retrain x unmasked/masked, all scored on the same held-out 95% of each test year). scripts/verify_results.py compares a fresh run against these. Produced on Linux (Docker, torch CPU).",
   "tolerance": {
     "aut_f1": 0.005,
-    "aut_recall": 0.01
+    "aut_recall": 0.01,
+    "replication_accuracy": 0.002
   },
   "n_apps": 76708,
   "n_malware": 40930,
@@ -43,21 +44,22 @@
     "WRITE_CALL_LOG",
     "WRITE_EXTERNAL_STORAGE"
   ],
+  "replication_accuracy": 0.9529,
   "cells": {
     "rf_none_unmasked": {
-      "aut_f1_mean": 0.8848,
-      "aut_recall_mean": 0.8886
+      "aut_f1_mean": 0.8852,
+      "aut_recall_mean": 0.8884
     },
     "rf_none_masked": {
-      "aut_f1_mean": 0.7962,
-      "aut_recall_mean": 0.7307
+      "aut_f1_mean": 0.7966,
+      "aut_recall_mean": 0.7308
     },
     "rf_pruning_unmasked": {
-      "aut_f1_mean": 0.8783,
+      "aut_f1_mean": 0.8785,
       "aut_recall_mean": 0.8795
     },
     "rf_pruning_masked": {
-      "aut_f1_mean": 0.8783,
+      "aut_f1_mean": 0.8785,
       "aut_recall_mean": 0.8795
     },
     "rf_retrain_unmasked": {
@@ -69,20 +71,20 @@
       "aut_recall_mean": 0.8775
     },
     "mlp_none_unmasked": {
-      "aut_f1_mean": 0.8855,
-      "aut_recall_mean": 0.8701
+      "aut_f1_mean": 0.8856,
+      "aut_recall_mean": 0.8702
     },
     "mlp_none_masked": {
-      "aut_f1_mean": 0.8209,
-      "aut_recall_mean": 0.7432
+      "aut_f1_mean": 0.8213,
+      "aut_recall_mean": 0.7436
     },
     "mlp_pruning_unmasked": {
-      "aut_f1_mean": 0.8822,
-      "aut_recall_mean": 0.8625
+      "aut_f1_mean": 0.8826,
+      "aut_recall_mean": 0.8629
     },
     "mlp_pruning_masked": {
-      "aut_f1_mean": 0.8822,
-      "aut_recall_mean": 0.8625
+      "aut_f1_mean": 0.8826,
+      "aut_recall_mean": 0.8629
     },
     "mlp_retrain_unmasked": {
       "aut_f1_mean": 0.9044,

@@ -1,8 +1,9 @@
 """Compare a fresh pipeline run with the reference values in configs/expected_results.json.
 
-Checks the cleaned data (app counts per year), the listed permissions, and the mean AUT(F1)
-and AUT(recall) over seeds of every experiment cell in the reference. Exits with status 1 and
-lists every mismatch if the run does not reproduce the reference.
+Checks the cleaned data (app counts per year), the listed permissions, the replication
+accuracy, and the mean AUT(F1) and AUT(recall) over seeds of every experiment cell in the
+reference. Exits with status 1 and lists every mismatch if the run does not reproduce the
+reference.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ def main() -> int:
     exp = json.loads(resolve(args.expected).read_text())
     res = resolve(args.results_dir)
     cells = exp["cells"]
-    needed = ["year_counts.csv", *(f"{c}_aut.csv" for c in cells)]
+    needed = ["year_counts.csv", "replication.json", *(f"{c}_aut.csv" for c in cells)]
     missing = [f for f in needed if not (res / f).exists()]
     records = sorted(res.glob(f"{next(iter(cells))}_seed*.json"))
     if not records:
@@ -53,7 +54,10 @@ def main() -> int:
             exp["year_totals"], 0, problems)
     compare("listed_permissions", record["listed_permissions"], exp["listed_permissions"], 0,
             problems)
-    n_checks = 4
+    replication = json.loads((res / "replication.json").read_text())
+    compare("replication_accuracy", replication["accuracy"], exp["replication_accuracy"],
+            float(tol["replication_accuracy"]), problems)
+    n_checks = 5
     for cell, values in cells.items():
         auts = pd.read_csv(res / f"{cell}_aut.csv")
         for metric in ("aut_f1", "aut_recall"):

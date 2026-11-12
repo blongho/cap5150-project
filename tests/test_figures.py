@@ -53,3 +53,36 @@ def test_missing_core_csv_is_named(results, tmp_path):
     (results / f"{victim}.csv").unlink()
     with pytest.raises(FileNotFoundError, match=victim):
         make_all(results, tmp_path / "figures")
+
+
+def test_report_tables_from_results(results, tmp_path):
+    import json
+
+    from drift.tables import make_tables
+
+    pd.DataFrame({"benign": [10, 20], "malware": [5, 5], "total": [15, 25]},
+                 index=pd.Index([2014, 2015], name="year")).to_csv(results / "year_counts.csv")
+    (results / "replication.json").write_text(json.dumps(
+        {"accuracy": 0.9529, "reference_accuracy": 0.954}))
+    pd.DataFrame({"hypothesis": ["H1"], "model": ["rf"], "mean_a": [0.9], "mean_b": [0.8],
+                  "p_value": [0.031], "effect_size_r": [1.0]}).to_csv(
+        results / "hypothesis_tests.csv", index=False)
+    pd.DataFrame({"year": [2014, 2014], "permission": ["GET_TASKS", "OTHER"],
+                  "flagged": [True, False]}).to_csv(results / "ks_tests.csv", index=False)
+    pd.DataFrame({"year": [2014], "statistic": [0.4]}).to_csv(results / "ks_scores.csv",
+                                                              index=False)
+    (results / "rf_none_masked_seed0.json").write_text(
+        json.dumps({"listed_permissions": ["GET_TASKS"]}))
+    pd.DataFrame({"permission": ["GET_TASKS"] * 2, "change_year": [2014] * 2,
+                  "class": ["malware", "benign"], "rate_before": [0.19, 0.1],
+                  "rate_after": [0.57, float("nan")]}).to_csv(
+        results / "masking_check.csv", index=False)
+
+    out = tmp_path / "tables"
+    out.mkdir()
+    names = {p.name for p in make_tables(results, out)}
+    assert names == {"numbers.tex", "hypothesis_table.tex", "ks_table.tex", "masking_table.tex"}
+    assert "\\newcommand{\\NApps}{40}" in (out / "numbers.tex").read_text()
+    assert "1 / 2 & 1 / 1 & 0.400" in (out / "ks_table.tex").read_text()
+    masking = (out / "masking_table.tex").read_text()
+    assert "\\texttt{GET\\_TASKS} & 2014 & 19 $\\to$ 57 & 10 $\\to$ --" in masking

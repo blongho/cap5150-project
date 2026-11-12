@@ -109,16 +109,26 @@ def test_retrain_records_cumulative_labels_and_scores_held_out_apps(cfg):
     labelled = [retrain["per_year"][y]["n_labelled"] for y in ("2013", "2014")]
     assert 0 < labelled[0] < labelled[1]  # budgets accumulate over years
     for year in ("2013", "2014"):
-        # The labelled budget is never scored.
-        assert retrain["per_year"][year]["n"] < none["per_year"][year]["n"]
+        # Every defense is scored on the same held-out apps, never on the labelled budget.
+        assert retrain["per_year"][year]["n"] == none["per_year"][year]["n"]
+        assert retrain["per_year"][year]["n"] < 10  # 10 synthetic apps per year
     assert pd.read_csv(results / "rf_retrain_masked.csv")["n_labelled_mean"].iloc[-1] == (
         labelled[1])
 
 
-def test_retrain_needs_its_config_section(cfg):
+def test_budget_fraction_is_required_for_every_defense(cfg):
     del cfg["retrain"]
-    with pytest.raises(ValueError, match="retrain"):
-        run_experiments(cfg, ["rf"], ["retrain"], ["unmasked"])
+    for defense in ("none", "retrain"):
+        with pytest.raises(ValueError, match="retrain"):
+            run_experiments(cfg, ["rf"], [defense], ["unmasked"])
+
+
+def test_all_defenses_share_the_evaluation_set(cfg):
+    run_experiments(cfg, ["rf"], ["none", "pruning", "retrain"], ["unmasked"])
+    results = resolve(cfg["experiment"]["results_dir"])
+    n = {d: [json.loads(record_path(results, "rf", d, "unmasked", s).read_text())
+             ["per_year"]["2014"]["n"] for s in SEEDS] for d in ("none", "pruning", "retrain")}
+    assert n["none"] == n["pruning"] == n["retrain"]
 
 
 def test_unknown_names_are_rejected(cfg):

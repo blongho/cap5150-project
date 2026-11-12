@@ -14,11 +14,14 @@ zeroes each listed permission only in test years on or after its change year.
 Optional variant: `malware_share_10pct` reruns the core conditions with each test year's
 malware cut to `malware_share_target` (cells suffixed `_10pct`).
 
+Evaluation set: for each seed and test year, a stratified `retrain.budget_fraction` of the
+year is drawn once as the labelled budget, and every defense is scored on the remaining apps,
+so all defenses are compared on identical apps (paired by seed and year).
+
 Defenses: `none`; `pruning` removes the listed permissions from training and test data;
-`retrain` labels a stratified `retrain.budget_fraction` of each test year (in year order),
-updates the model on all budgets so far (RF: refit on training data + budgets; MLP: fine-tune a
-copy of the base model on the budgets) and scores the rest of that year. Under a masking
-condition the budget is masked too, as it comes from the same deployment. Each year records
+`retrain` updates the model, in year order, on all budgets so far (RF: refit on training data
++ budgets; MLP: fine-tune a copy of the base model on the budgets). Under a masking condition
+the budget is masked too, as it comes from the same deployment. Each year records
 `n_labelled`, the cumulative budget size (0 for the other defenses).
 """
 
@@ -57,6 +60,7 @@ MODEL_SECTIONS = {"rf": "model", "mlp": "mlp"}
 METRICS = ("f1", "recall", "precision", "fpr", "accuracy", "n", "n_labelled")
 AUT_METRICS = ("f1", "recall", "fpr")
 RETRAIN_KEYS = ("budget_fraction", "mlp_finetune_epochs", "mlp_finetune_lr")
+Split = dict[int, pd.DataFrame]
 
 
 def cell_name(model: str, defense: str, condition: str, variant: str = "") -> str:
@@ -121,10 +125,11 @@ def _validate(models, defenses, conditions, cfg: dict[str, Any]) -> None:
     for m in models:
         if MODEL_SECTIONS[m] not in cfg:
             raise ValueError(f"Config has no `{MODEL_SECTIONS[m]}` section for model {m!r}")
-    if "retrain" in defenses:
-        missing = [k for k in RETRAIN_KEYS if k not in cfg.get("retrain", {})]
-        if missing:
-            raise ValueError(f"Config `retrain` section is missing keys {missing}")
+    # The budget fraction defines every defense's evaluation set, so it is always required.
+    needed = RETRAIN_KEYS if "retrain" in defenses else ("budget_fraction",)
+    missing = [k for k in needed if k not in cfg.get("retrain", {})]
+    if missing:
+        raise ValueError(f"Config `retrain` section is missing keys {missing}")
     if "mlp" in models and importlib.util.find_spec("torch") is None:
         raise RuntimeError(
             "The mlp model needs PyTorch, which is not installed here (no wheels for Intel "
@@ -132,30 +137,35 @@ def _validate(models, defenses, conditions, cfg: dict[str, Any]) -> None:
         )
 
 
-def _score(model, tests: dict[int, pd.DataFrame], perms, listed, plan, condition,
-           defense) -> dict:
-    out = {}
+def split_years(tests: Split, frac: float, seed: int) -> tuple[Split, Split]:
+    """Per test year, (labelled budget, evaluation set); identical for every defense."""
+    budgets, evals = {}, {}
     for year, test in tests.items():
-        X = features(test, perms, listed, plan, condition, defense)
-        out[str(year)] = {**detection_metrics(test[LABEL].to_numpy(), model.predict(X)),
+        # Distinct, reproducible sampling seed per (seed, year).
+        budgets[year], evals[year] = sample_budget(test, frac, seed * 10_000 + year)
+    return budgets, evals
+
+
+def _score(model, evals: Split, perms, listed, plan, condition, defense) -> dict:
+    out = {}
+    for year, eval_df in evals.items():
+        X = features(eval_df, perms, listed, plan, condition, defense)
+        out[str(year)] = {**detection_metrics(eval_df[LABEL].to_numpy(), model.predict(X)),
                           "n_labelled": 0}
     return out
 
 
-def _retrain(model_name: str, base, train, tests, perms, listed, plan, condition, seed,
-             cfg: dict[str, Any]) -> dict:
+def _retrain(model_name: str, base, train, budgets: Split, evals: Split, perms, listed, plan,
+             condition, seed, cfg: dict[str, Any]) -> dict:
     """Score each test year after updating `base` on the labelled budgets so far."""
     rcfg = cfg["retrain"]
-    budgets: list[pd.DataFrame] = []
+    seen: list[pd.DataFrame] = []
     out = {}
-    for year in sorted(tests):
-        # Distinct, reproducible sampling seed per (seed, year).
-        sample_seed = seed * 10_000 + year
-        budget, eval_df = sample_budget(tests[year], rcfg["budget_fraction"], sample_seed)
-        budget = budget.copy()
+    for year in sorted(evals):
+        budget, eval_df = budgets[year].copy(), evals[year]
         budget[perms] = features(budget, perms, listed, plan, condition, "retrain")
-        budgets.append(budget)
-        labelled = cumulative_budget(budgets)
+        seen.append(budget)
+        labelled = cumulative_budget(seen)
         if model_name == "rf":
             model = retrain_rf(base, train[perms], train[LABEL], labelled, perms, seed)
         else:
@@ -233,15 +243,17 @@ def run_experiments(
                 for variant, condition in todo:
                     test_sets = tests if not variant else _subsampled(
                         tests, exp["malware_share_target"], seed)
+                    budgets, evals = split_years(test_sets, cfg["retrain"]["budget_fraction"],
+                                                 seed)
                     if defense == "retrain":
-                        per_year = _retrain(model_name, model, train, test_sets, perms, listed,
-                                            plan, condition, seed, cfg)
+                        per_year = _retrain(model_name, model, train, budgets, evals, perms,
+                                            listed, plan, condition, seed, cfg)
                     else:
-                        per_year = _score(model, test_sets, perms, listed, plan, condition,
-                                          defense)
+                        per_year = _score(model, evals, perms, listed, plan, condition, defense)
                     record = {
                         "model": model_name, "defense": defense, "condition": condition,
                         "variant": variant.lstrip("_") or "full", "seed": seed, **info,
+                        "evaluation": "held-out apps after the labelled budget (all defenses)",
                         "listed_permissions": listed,
                         "masked_permissions": plan[condition][0],
                         "change_years": plan[condition][1],
