@@ -15,7 +15,7 @@ from drift.experiments import cell_name, record_path, run_experiments
 PERMISSION_LIST = resolve("data/deprecated_permissions.csv")
 SEEDS = [0, 1]
 YEARS = [2010, 2011, 2012, 2013, 2014]
-DEFENSES = ["none", "pruning"]
+DEFENSES = ["none", "pruning", "retrain"]
 CONDITIONS = ["unmasked", "masked"]
 MODELS = ["rf", pytest.param("mlp", marks=pytest.mark.skipif(
     importlib.util.find_spec("torch") is None, reason="torch is not installed"))]
@@ -98,9 +98,25 @@ def test_pruning_drops_listed_features_and_ignores_masking(cfg):
     assert pruned_u["per_year"] == pruned_m["per_year"]
 
 
-def test_retrain_is_skipped_until_implemented(cfg, caplog):
-    assert run_experiments(cfg, ["rf"], ["retrain"], ["unmasked"]) == []
-    assert "not implemented" in caplog.text
+def test_retrain_records_cumulative_labels_and_scores_held_out_apps(cfg):
+    run_experiments(cfg, ["rf"], ["none", "retrain"], ["masked"])
+    results = resolve(cfg["experiment"]["results_dir"])
+    none = json.loads(record_path(results, "rf", "none", "masked", 0).read_text())
+    retrain = json.loads(record_path(results, "rf", "retrain", "masked", 0).read_text())
+    assert [none["per_year"][y]["n_labelled"] for y in ("2013", "2014")] == [0, 0]
+    labelled = [retrain["per_year"][y]["n_labelled"] for y in ("2013", "2014")]
+    assert 0 < labelled[0] < labelled[1]  # budgets accumulate over years
+    for year in ("2013", "2014"):
+        # The labelled budget is never scored.
+        assert retrain["per_year"][year]["n"] < none["per_year"][year]["n"]
+    assert pd.read_csv(results / "rf_retrain_masked.csv")["n_labelled_mean"].iloc[-1] == (
+        labelled[1])
+
+
+def test_retrain_needs_its_config_section(cfg):
+    del cfg["retrain"]
+    with pytest.raises(ValueError, match="retrain"):
+        run_experiments(cfg, ["rf"], ["retrain"], ["unmasked"])
 
 
 def test_unknown_names_are_rejected(cfg):

@@ -36,6 +36,17 @@ mlp:
   batch_size: 256                 # mini-batch size
   val_fraction: 0.1               # share of training data held out for early stopping
 
+# Retraining defense: label a share of each test year and update the model on it.
+retrain:
+  budget_fraction: 0.05           # share of each test year labelled (stratified by class)
+  mlp_finetune_epochs: 10         # MLP fine-tuning epochs on the cumulative budget
+  mlp_finetune_lr: 1.0e-4         # Adam learning rate for MLP fine-tuning
+
+# Hypothesis tests (H1-H3): one-sided paired Wilcoxon over seeds.
+stats:
+  metric: aut_f1                  # per-seed AUT column compared
+  alpha: 0.05                     # significance level for the reported conclusion
+
 experiment:
   seeds: [0, 1, 2, 3, 4]
   results_dir: results

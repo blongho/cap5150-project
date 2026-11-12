@@ -9,11 +9,16 @@ skipped. Once every seed of a cell is present, two aggregate CSVs are written:
 
 Conditions: `unmasked` scores the test data as is; `masked` zeroes the listed permissions at
 test time. Defenses: `none`; `pruning` removes the listed permissions from training and test
-data; `retrain` (5% labelled budget per test year) is not implemented yet and is skipped.
+data; `retrain` labels a stratified `retrain.budget_fraction` of each test year (in year order),
+updates the model on all budgets so far (RF: refit on training data + budgets; MLP: fine-tune a
+copy of the base model on the budgets) and scores the rest of that year. Under `masked`, the
+budget is masked too, as it comes from the same deployment. Each year records `n_labelled`,
+the cumulative budget size (0 for the other defenses).
 """
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import logging
@@ -24,6 +29,7 @@ import pandas as pd
 
 from drift.config import resolve
 from drift.data import LABEL, permission_columns, time_split
+from drift.defenses import cumulative_budget, finetune_mlp, retrain_rf, sample_budget
 from drift.features import mask, prune
 from drift.metrics import aut, detection_metrics
 from drift.models import build_model
@@ -37,9 +43,9 @@ DEFENSES = ("none", "pruning", "retrain")
 CONDITIONS = ("unmasked", "masked")
 # Config section holding each model's build_model settings.
 MODEL_SECTIONS = {"rf": "model", "mlp": "mlp"}
-METRICS = ("f1", "recall", "precision", "fpr", "accuracy")
+METRICS = ("f1", "recall", "precision", "fpr", "accuracy", "n", "n_labelled")
 AUT_METRICS = ("f1", "recall", "fpr")
-NOT_IMPLEMENTED = {"retrain"}
+RETRAIN_KEYS = ("budget_fraction", "mlp_finetune_epochs", "mlp_finetune_lr")
 
 
 def cell_name(model: str, defense: str, condition: str) -> str:
@@ -68,6 +74,10 @@ def _validate(models, defenses, conditions, cfg: dict[str, Any]) -> None:
     for m in models:
         if MODEL_SECTIONS[m] not in cfg:
             raise ValueError(f"Config has no `{MODEL_SECTIONS[m]}` section for model {m!r}")
+    if "retrain" in defenses:
+        missing = [k for k in RETRAIN_KEYS if k not in cfg.get("retrain", {})]
+        if missing:
+            raise ValueError(f"Config `retrain` section is missing keys {missing}")
     if "mlp" in models and importlib.util.find_spec("torch") is None:
         raise RuntimeError(
             "The mlp model needs PyTorch, which is not installed here (no wheels for Intel "
@@ -79,7 +89,33 @@ def _score(model, tests: dict[int, pd.DataFrame], perms, listed, condition, defe
     out = {}
     for year, test in tests.items():
         X = features(test[perms], listed, condition, defense)
-        out[str(year)] = detection_metrics(test[LABEL].to_numpy(), model.predict(X))
+        out[str(year)] = {**detection_metrics(test[LABEL].to_numpy(), model.predict(X)),
+                          "n_labelled": 0}
+    return out
+
+
+def _retrain(model_name: str, base, train, tests, perms, listed, condition, seed,
+             cfg: dict[str, Any]) -> dict:
+    """Score each test year after updating `base` on the labelled budgets so far."""
+    rcfg = cfg["retrain"]
+    budgets: list[pd.DataFrame] = []
+    out = {}
+    for year in sorted(tests):
+        # Distinct, reproducible sampling seed per (seed, year).
+        sample_seed = seed * 10_000 + year
+        budget, eval_df = sample_budget(tests[year], rcfg["budget_fraction"], sample_seed)
+        budget = budget.copy()
+        budget[perms] = features(budget[perms], listed, condition, "retrain")
+        budgets.append(budget)
+        labelled = cumulative_budget(budgets)
+        if model_name == "rf":
+            model = retrain_rf(base, train[perms], train[LABEL], labelled, perms, seed)
+        else:
+            model = finetune_mlp(copy.deepcopy(base), labelled, perms,
+                                 rcfg["mlp_finetune_epochs"], rcfg["mlp_finetune_lr"])
+        X = features(eval_df[perms], listed, condition, "retrain")
+        out[str(year)] = {**detection_metrics(eval_df[LABEL].to_numpy(), model.predict(X)),
+                          "n_labelled": int(len(labelled))}
     return out
 
 
@@ -104,14 +140,10 @@ def run_experiments(
     train, tests = time_split(df, split["train_end_year"], split["test_years"])
     info = run_info()
 
-    for defense in sorted(set(defenses) & NOT_IMPLEMENTED):
-        log.warning("defense=%s is not implemented yet; skipping it", defense)
-    active = [d for d in defenses if d not in NOT_IMPLEMENTED]
-
     written: list[Path] = []
     for model_name in models:
         model_cfg = cfg[MODEL_SECTIONS[model_name]]
-        for defense in active:
+        for defense in defenses:
             for seed in seeds:
                 todo = [c for c in conditions
                         if not record_path(results_dir, model_name, defense, c, seed).exists()]
@@ -122,7 +154,11 @@ def run_experiments(
                 X_train = features(train[perms], listed, "unmasked", defense)
                 model = build_model(model_cfg, seed).fit(X_train, train[LABEL])
                 for condition in todo:
-                    per_year = _score(model, tests, perms, listed, condition, defense)
+                    if defense == "retrain":
+                        per_year = _retrain(model_name, model, train, tests, perms, listed,
+                                            condition, seed, cfg)
+                    else:
+                        per_year = _score(model, tests, perms, listed, condition, defense)
                     record = {
                         "model": model_name, "defense": defense, "condition": condition,
                         "seed": seed, **info, "listed_permissions": listed,
@@ -138,7 +174,7 @@ def run_experiments(
                              model_name, defense, condition, seed)
 
     for model_name in models:
-        for defense in active:
+        for defense in defenses:
             for condition in conditions:
                 write_aggregates(results_dir, model_name, defense, condition, seeds)
     return written
@@ -155,7 +191,8 @@ def write_aggregates(results_dir: Path, model: str, defense: str, condition: str
         return False
     records = [json.loads(p.read_text()) for p in paths]
 
-    rows = [{"seed": r["seed"], "year": int(y), **{m: v[m] for m in METRICS}}
+    # Records written before n_labelled existed come from defenses that label nothing.
+    rows = [{"seed": r["seed"], "year": int(y), **{m: v.get(m, 0) for m in METRICS}}
             for r in records for y, v in r["per_year"].items()]
     per_year = pd.DataFrame(rows).groupby("year")[list(METRICS)].agg(["mean", "std"])
     per_year.columns = [f"{m}_{stat}" for m, stat in per_year.columns]

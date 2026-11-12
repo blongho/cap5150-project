@@ -1,5 +1,5 @@
 {
-  "_comment": "Reference values from the full experiment run (5 seeds; RF and MLP, defenses none and pruning; retrain cells are added once implemented). scripts/verify_results.py compares a fresh run against these. MLP values were produced on Linux (Docker, torch CPU).",
+  "_comment": "Reference values from the full experiment run (5 seeds; RF and MLP x none/pruning/retrain x unmasked/masked). scripts/verify_results.py compares a fresh run against these. MLP values were produced on Linux (Docker, torch CPU).",
   "tolerance": {
     "aut_f1": 0.005,
     "aut_recall": 0.01
@@ -60,6 +60,14 @@
       "aut_f1_mean": 0.8783,
       "aut_recall_mean": 0.8795
     },
+    "rf_retrain_unmasked": {
+      "aut_f1_mean": 0.9014,
+      "aut_recall_mean": 0.9167
+    },
+    "rf_retrain_masked": {
+      "aut_f1_mean": 0.8902,
+      "aut_recall_mean": 0.8775
+    },
     "mlp_none_unmasked": {
       "aut_f1_mean": 0.8855,
       "aut_recall_mean": 0.8701
@@ -75,6 +83,14 @@
     "mlp_pruning_masked": {
       "aut_f1_mean": 0.8822,
       "aut_recall_mean": 0.8625
+    },
+    "mlp_retrain_unmasked": {
+      "aut_f1_mean": 0.9044,
+      "aut_recall_mean": 0.884
+    },
+    "mlp_retrain_masked": {
+      "aut_f1_mean": 0.8688,
+      "aut_recall_mean": 0.8356
     }
   }
 }

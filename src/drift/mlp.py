@@ -57,24 +57,31 @@ class MLP(nn.Module):
             nn.Linear(h, 2),
         )
 
+    def _seed(self) -> torch.Generator:
+        """Seed torch and numpy from random_state; return the generator used for shuffling."""
+        generator = torch.Generator()
+        if self.random_state is not None:
+            torch.manual_seed(self.random_state)
+            np.random.seed(self.random_state)
+            generator.manual_seed(self.random_state)
+        return generator
+
+    def _epoch(self, X: torch.Tensor, y: torch.Tensor, criterion, optimizer, generator) -> None:
+        """One pass over (X, y) in shuffled mini-batches."""
+        self.train()
+        for batch in torch.randperm(len(X), generator=generator).split(self.batch_size):
+            optimizer.zero_grad()
+            criterion(self(X[batch]), y[batch]).backward()
+            optimizer.step()
+
     def fit(self, X, y) -> MLP:
         """Train from scratch on X (n_samples, n_features) and binary labels y in {0, 1}."""
-        X = _as_float_array(X)
-        y = np.asarray(y).astype(np.int64)
-        if len(X) != len(y):
-            raise ValueError("X and y have different numbers of rows")
-        if not set(np.unique(y)) <= {0, 1}:
-            raise ValueError("MLP expects binary labels in {0, 1}")
+        X, y = _check_xy(X, y)
         n_val = max(1, round(self.val_fraction * len(X)))
         if len(X) - n_val < 1:
             raise ValueError("Too few samples to hold out a validation split")
 
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-        generator = torch.Generator()
-        if self.random_state is not None:
-            generator.manual_seed(self.random_state)
+        generator = self._seed()
         rng = np.random.default_rng(self.random_state)
         self._build(X.shape[1])
 
@@ -83,20 +90,13 @@ class MLP(nn.Module):
         X_tr, y_tr = torch.from_numpy(X[train_idx]), torch.from_numpy(y[train_idx])
         X_val, y_val = torch.from_numpy(X[val_idx]), torch.from_numpy(y[val_idx])
 
-        # Inverse-frequency weights from the training part; a class that is absent gets 0.
-        counts = np.bincount(y[train_idx], minlength=2).astype(np.float64)
-        weights = np.divide(len(train_idx), 2 * counts, out=np.zeros(2), where=counts > 0)
-        criterion = nn.CrossEntropyLoss(weight=torch.tensor(weights, dtype=torch.float32))
+        criterion = _weighted_loss(y[train_idx])
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         best_loss, best_state, stale = float("inf"), None, 0
         self.n_epochs_ = 0
         for _ in range(self.epochs):
-            self.train()
-            for batch in torch.randperm(len(X_tr), generator=generator).split(self.batch_size):
-                optimizer.zero_grad()
-                criterion(self(X_tr[batch]), y_tr[batch]).backward()
-                optimizer.step()
+            self._epoch(X_tr, y_tr, criterion, optimizer, generator)
             self.n_epochs_ += 1
 
             self.eval()
@@ -116,6 +116,24 @@ class MLP(nn.Module):
         self.eval()
         return self
 
+    def finetune(self, X, y, epochs: int, lr: float) -> MLP:
+        """Continue training the fitted network on (X, y) for a fixed number of epochs.
+
+        Uses a fresh Adam optimiser at `lr` and class weights from y; no validation split,
+        because labelled budgets are small. Modifies and returns self.
+        """
+        if self.net is None:
+            raise RuntimeError("MLP is not fitted; call fit() before finetune()")
+        X, y = _check_xy(X, y)
+        generator = self._seed()
+        X_t, y_t = torch.from_numpy(X), torch.from_numpy(y)
+        criterion = _weighted_loss(y)
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        for _ in range(epochs):
+            self._epoch(X_t, y_t, criterion, optimizer, generator)
+        self.eval()
+        return self
+
     def predict_proba(self, X) -> np.ndarray:
         """Class probabilities, shape (n_samples, 2); column 1 is P(malware)."""
         self.eval()
@@ -131,3 +149,20 @@ class MLP(nn.Module):
 def _as_float_array(X) -> np.ndarray:
     """Accept a DataFrame or array-like and return a contiguous float32 array."""
     return np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+
+
+def _check_xy(X, y) -> tuple[np.ndarray, np.ndarray]:
+    X = _as_float_array(X)
+    y = np.asarray(y).astype(np.int64)
+    if len(X) != len(y):
+        raise ValueError("X and y have different numbers of rows")
+    if not set(np.unique(y)) <= {0, 1}:
+        raise ValueError("MLP expects binary labels in {0, 1}")
+    return X, y
+
+
+def _weighted_loss(y: np.ndarray) -> nn.CrossEntropyLoss:
+    """Cross-entropy with inverse-frequency class weights; an absent class gets weight 0."""
+    counts = np.bincount(y, minlength=2).astype(np.float64)
+    weights = np.divide(len(y), 2 * counts, out=np.zeros(2), where=counts > 0)
+    return nn.CrossEntropyLoss(weight=torch.tensor(weights, dtype=torch.float32))

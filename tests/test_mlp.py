@@ -137,3 +137,13 @@ def test_rejects_non_binary_labels():
     X, _ = _toy()
     with pytest.raises(ValueError, match="binary"):
         _small_mlp().fit(X, np.full(len(X), 2))
+
+
+@requires_torch
+def test_finetune_requires_fit_and_is_reproducible():
+    X, y = _toy()
+    with pytest.raises(RuntimeError, match="not fitted"):
+        _small_mlp().finetune(X, y, epochs=1, lr=1e-3)
+    a = _small_mlp(seed=2).fit(X, y).finetune(X[:20], y[:20], epochs=3, lr=0.01)
+    b = _small_mlp(seed=2).fit(X, y).finetune(X[:20], y[:20], epochs=3, lr=0.01)
+    np.testing.assert_array_equal(a.predict_proba(X), b.predict_proba(X))
