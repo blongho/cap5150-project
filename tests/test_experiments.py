@@ -51,7 +51,9 @@ def cfg(tmp_path):
     base["split"] = {"train_end_year": 2012, "test_years": [2013, 2014]}
     base["model"].update(n_estimators=5, n_jobs=1)
     base["mlp"].update(hidden_size=8, epochs=3)
-    base["experiment"].update(seeds=SEEDS, results_dir=str(tmp_path / "results"))
+    base["experiment"].update(seeds=SEEDS, results_dir=str(tmp_path / "results"),
+                              separate_masking=False, timed_masking=False,
+                              malware_share_10pct=False)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(base))
     return load_config(path)
@@ -124,3 +126,34 @@ def test_unknown_names_are_rejected(cfg):
         run_experiments(cfg, ["svm"], ["none"], ["unmasked"])
     with pytest.raises(ValueError, match="Unknown condition"):
         run_experiments(cfg, ["rf"], ["none"], ["timed"])
+
+
+def test_optional_conditions_and_share_variant(cfg):
+    cfg["experiment"].update(separate_masking=True, timed_masking=True, malware_share_10pct=True)
+    written = run_experiments(cfg, ["rf"], ["none"])
+    results = resolve(cfg["experiment"]["results_dir"])
+    names = {p.name for p in written}
+    for cond in ("unmasked", "masked", "masked_deprecated", "masked_restricted",
+                 "timed_masking"):
+        assert f"rf_none_{cond}_seed0.json" in names
+        assert (results / f"rf_none_{cond}_aut.csv").exists()
+    for cond in ("unmasked", "masked"):
+        assert f"rf_none_{cond}_10pct_seed0.json" in names
+    assert "rf_none_timed_masking_10pct_seed0.json" not in names  # variant: core only
+    assert len(written) == (5 + 2) * len(SEEDS)
+
+    def rec(name):
+        return json.loads((results / f"{name}_seed0.json").read_text())
+
+    dep, res = rec("rf_none_masked_deprecated"), rec("rf_none_masked_restricted")
+    assert set(dep["masked_permissions"]) | set(res["masked_permissions"]) == set(
+        dep["listed_permissions"])
+    # No listed permission changes before 2014, so timed masking leaves 2013 untouched.
+    timed, unmasked = rec("rf_none_timed_masking"), rec("rf_none_unmasked")
+    assert min(timed["change_years"].values()) == 2014
+    assert timed["per_year"]["2013"] == unmasked["per_year"]["2013"]
+    share = rec("rf_none_unmasked_10pct")
+    assert share["variant"] == "10pct"
+    for year in ("2013", "2014"):
+        assert share["per_year"][year]["n"] < unmasked["per_year"][year]["n"]
+        assert share["per_year"][year]["malware_share"] < 0.5

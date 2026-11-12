@@ -74,3 +74,15 @@ def select(
         table["category"].isin(categories) & table["api_level"].between(min_api, max_api)
     ]
     return sorted(keep["permission"].unique())
+
+
+def change_years(
+    table: pd.DataFrame, permissions: list[str], categories: list[str], min_api: int, max_api: int
+) -> dict[str, int]:
+    """First year each permission changed (earliest across the given categories and APIs)."""
+    keep = table[
+        table["permission"].isin(permissions)
+        & table["category"].isin(categories)
+        & table["api_level"].between(min_api, max_api)
+    ]
+    return {p: int(y) for p, y in keep.groupby("permission")["year"].min().items()}

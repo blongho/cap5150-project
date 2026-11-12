@@ -85,3 +85,20 @@ def time_split(df: pd.DataFrame, train_end_year: int, test_years: list[int]):
     if empty:
         raise ValueError(f"No samples for test years {empty}")
     return train, tests
+
+
+def subsample_malware(df_year: pd.DataFrame, target_share: float, seed: int) -> pd.DataFrame:
+    """Drop random malware rows so malware makes up `target_share` of the year.
+
+    Keeps every benign row and round(target_share * n_benign / (1 - target_share)) malware
+    rows. Raises ValueError unless 0 < target_share < the current malware share.
+    """
+    current = float(df_year[LABEL].mean())
+    if not 0 < target_share < current:
+        raise ValueError(
+            f"target_share {target_share} must lie in (0, current share {current:.3f})"
+        )
+    benign = df_year[df_year[LABEL] == 0]
+    n_malware = round(target_share * len(benign) / (1 - target_share))
+    malware = df_year[df_year[LABEL] == 1].sample(n=n_malware, random_state=seed)
+    return df_year.loc[df_year.index.isin(benign.index.union(malware.index))]

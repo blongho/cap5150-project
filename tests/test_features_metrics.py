@@ -48,3 +48,19 @@ def test_aut_rejects_bad_input():
         aut([0.9])
     with pytest.raises(ValueError):
         aut([0.9, float("nan")])
+
+
+def test_timed_mask_zeroes_only_from_change_year():
+    X = pd.DataFrame({"A": [1, 1, 1, 1], "B": [1, 1, 1, 1], "year": [2015, 2016, 2017, 2018]})
+    out = mask(X, ["A", "B"], change_years={"A": 2017})
+    assert list(out["A"]) == [1, 1, 0, 0]
+    assert list(out["B"]) == [1, 1, 1, 1]  # no change year: never masked
+    assert list(X["A"]) == [1, 1, 1, 1]  # input untouched
+
+
+def test_timed_mask_validates_inputs():
+    X = pd.DataFrame({"A": [1], "year": [2017]})
+    with pytest.raises(KeyError):
+        mask(X, ["A"], change_years={"MISSING": 2017})
+    with pytest.raises(KeyError, match="year"):
+        mask(X.drop(columns="year"), ["A"], change_years={"A": 2017})

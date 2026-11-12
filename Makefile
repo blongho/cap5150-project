@@ -9,6 +9,7 @@
 #   make prepare     clean the data -> data/processed/real_device.parquet
 #   make experiments run the full grid (model x defense x condition x seed) -> results/
 #   make stats       Wilcoxon tests of H1-H3 -> results/hypothesis_tests.csv
+#   make ks_tests    KS drift tests per permission and on RF scores -> results/ks_*.csv
 #   make verify      compare results/ with configs/expected_results.json
 #   make check       lint + unit tests
 #   make lock        regenerate requirements.lock from requirements.txt
@@ -28,11 +29,11 @@ PY  := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 RUN := PYTHONHASHSEED=0 PYTHONPATH=src $(PY)
 
-.PHONY: help reproduce setup check-python data permissions prepare experiments stats verify all \
+.PHONY: help reproduce setup check-python data permissions prepare experiments stats ks_tests verify all \
         test lint check lock docker-build docker-reproduce clean clean-data
 
 help:
-	@sed -n '2,20p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '2,21p' Makefile | sed 's/^# \{0,1\}//'
 
 reproduce: all verify check
 	@echo "Reproduction complete: results/ and figures/ match configs/expected_results.json."
@@ -67,7 +68,10 @@ experiments: prepare permissions
 stats: experiments
 	$(RUN) scripts/run_stats.py --config $(CONFIG)
 
-all: experiments stats
+ks_tests: prepare
+	$(RUN) scripts/run_ks_tests.py --config $(CONFIG)
+
+all: experiments stats ks_tests
 
 verify: setup
 	$(RUN) scripts/verify_results.py

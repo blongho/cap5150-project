@@ -51,3 +51,13 @@ experiment:
   seeds: [0, 1, 2, 3, 4]
   results_dir: results
   figures_dir: figures
+  # Optional analyses (each defaults to false when absent).
+  separate_masking: true          # add masked_deprecated and masked_restricted conditions
+  timed_masking: true             # add timed_masking: zero each permission from its change year
+  malware_share_10pct: true       # rerun core conditions with test years cut to the share below
+  malware_share_target: 0.10      # malware share of each test year in the _10pct variant
+
+# KS drift tests (make ks_tests): per-permission and RF-score tests, train vs each test year.
+ks:
+  alpha: 0.05                     # Benjamini-Hochberg false discovery rate
+  seed: 0                         # seed of the RF whose scores are tested
