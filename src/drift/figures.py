@@ -2,6 +2,7 @@
 
     f1_decay_{model}.pdf/.png  per-year F1 (mean +/- 1 std over seeds): unmasked and masked
                                with no defense, masked with pruning, masked with retraining
+    recall_decay_{model}.*     the same for malware recall
     aut_summary.pdf/.png       AUT(F1) of the 12 core cells (dot plot, error bars = std)
     aut_table.tex              core AUT table with the labels each defense used
     aut_extras_table.tex       separate and timed masking (written when those CSVs exist)
@@ -23,7 +24,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from drift.experiments import CORE_CONDITIONS, DEFENSES, MODELS, cell_name  # noqa: E402
-from drift.tables import make_tables  # noqa: E402
+from drift.tables import bold_best, make_tables  # noqa: E402
 
 MODEL_LABELS = {"rf": "RF", "mlp": "MLP"}
 DEFENSE_LABELS = {"none": "None", "pruning": "Pruning", "retrain": "5\\% retraining"}
@@ -69,22 +70,28 @@ def _save(fig, path: Path) -> list[Path]:
 
 
 def f1_decay(results_dir: Path, figures_dir: Path, model: str) -> list[Path]:
+    return decay(results_dir, figures_dir, model, "f1", "Malware F1")
+
+
+def decay(results_dir: Path, figures_dir: Path, model: str, metric: str, label: str
+          ) -> list[Path]:
+    """Per-year `metric` (mean +/- 1 std over seeds) for the four DECAY_LINES settings."""
     fig, ax = plt.subplots(figsize=(3.4, 2.5))
-    for color, (defense, condition, label, marker, ls) in zip(PALETTE, DECAY_LINES,
-                                                               strict=True):
+    for color, (defense, condition, name, marker, ls) in zip(PALETTE, DECAY_LINES,
+                                                              strict=True):
         g = pd.read_csv(results_dir / f"{cell_name(model, defense, condition)}.csv")
-        ax.plot(g["year"], g["f1_mean"], ls, marker=marker, ms=3.5, lw=1.4, color=color,
-                label=label)
-        ax.fill_between(g["year"], g["f1_mean"] - g["f1_std"], g["f1_mean"] + g["f1_std"],
-                        color=color, alpha=0.15, lw=0)
+        mean, std = g[f"{metric}_mean"], g[f"{metric}_std"]
+        ax.plot(g["year"], mean, ls, marker=marker, ms=3.5, lw=1.4, color=color,
+                label=name)
+        ax.fill_between(g["year"], mean - std, mean + std, color=color, alpha=0.15, lw=0)
     ax.set_xlabel("Test year", fontsize=8, color=INK)
-    ax.set_ylabel(f"Malware F1 ({MODEL_LABELS[model]})", fontsize=8, color=INK)
-    ax.set_ylim(0.5, 1.0)
+    ax.set_ylabel(f"{label} ({MODEL_LABELS[model]})", fontsize=8, color=INK)
+    ax.set_ylim(0.4 if metric == "recall" else 0.5, 1.0)
     _style(ax)
     # Above the plot: inside, it would cover the masked curve's dips.
     ax.legend(fontsize=6.5, frameon=False, ncol=2, loc="lower left", bbox_to_anchor=(0, 1.0),
               handlelength=2.2, columnspacing=1.0, borderaxespad=0.2)
-    return _save(fig, figures_dir / f"f1_decay_{model}")
+    return _save(fig, figures_dir / f"{metric}_decay_{model}")
 
 
 def aut_summary(results_dir: Path, figures_dir: Path) -> list[Path]:
@@ -107,28 +114,39 @@ def aut_summary(results_dir: Path, figures_dir: Path) -> list[Path]:
     return _save(fig, figures_dir / "aut_summary")
 
 
-def _mean_std(results_dir: Path, cell: str, col: str = "aut_f1") -> str:
-    s = pd.read_csv(results_dir / f"{cell}_aut.csv")[col]
-    return f"{s.mean():.3f} $\\pm$ {s.std():.3f}"
-
-
 def aut_table(results_dir: Path, figures_dir: Path) -> Path:
-    """LaTeX tabular: AUT(F1) unmasked / masked per model and defense, plus labels used."""
+    """LaTeX tabular: one row per defense, AUT(F1) unmasked / masked for each model side by
+    side, plus the labels each defense used. The best value of each column is in bold (ties
+    at the displayed precision are all bold)."""
+    columns = [(m, c) for m in MODELS for c in CORE_CONDITIONS]
+    auts = {(m, d, c): pd.read_csv(results_dir / f"{cell_name(m, d, c)}_aut.csv")["aut_f1"]
+            for m in MODELS for d in DEFENSES for c in CORE_CONDITIONS}
+    shown = {}
+    for m, c in columns:  # best defense per column
+        shown.update(bold_best({(m, d, c): auts[(m, d, c)] for d in DEFENSES}))
+
+    def cell(m: str, d: str, c: str) -> str:
+        return shown[(m, d, c)]
+
+    def labels(d: str) -> str:
+        counts = sorted({int(round(pd.read_csv(
+            results_dir / f"{cell_name(m, d, 'masked')}.csv")["n_labelled_mean"].iloc[-1]))
+            for m in MODELS})
+        return " / ".join(f"{n:,}" for n in counts)
+
+    groups = " & ".join(f"\\multicolumn{{2}}{{c}}{{{MODEL_LABELS[m]}}}" for m in MODELS)
+    rules = " ".join(f"\\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(len(MODELS)))
+    sub = " & ".join(c.capitalize() for _, c in columns)
     lines = [
-        "\\begin{tabular}{llccr}", "\\toprule",
-        "Model & Defense & Unmasked & Masked & Labels \\\\", "\\midrule",
+        "\\begin{tabular}{l" + "c" * len(columns) + "r}", "\\toprule",
+        f" & {groups} & \\\\", rules,
+        f"Defense & {sub} & Labels per model \\\\", "\\midrule",
     ]
-    for model in MODELS:
-        for defense in DEFENSES:
-            per_year = pd.read_csv(results_dir / f"{cell_name(model, defense, 'masked')}.csv")
-            labels = int(round(per_year["n_labelled_mean"].iloc[-1]))
-            lines.append(
-                f"{MODEL_LABELS[model]} & {DEFENSE_LABELS[defense]} & "
-                f"{_mean_std(results_dir, cell_name(model, defense, 'unmasked'))} & "
-                f"{_mean_std(results_dir, cell_name(model, defense, 'masked'))} & "
-                f"{labels:,} \\\\")
-        lines.append("\\midrule" if model != MODELS[-1] else "\\bottomrule")
-    lines.append("\\end{tabular}")
+    for d in DEFENSES:
+        lines.append(f"{DEFENSE_LABELS[d]} & "
+                     + " & ".join(cell(m, d, c) for m, c in columns)
+                     + f" & {labels(d)} \\\\")
+    lines += ["\\bottomrule", "\\end{tabular}"]
     path = figures_dir / "aut_table.tex"
     path.write_text("\n".join(lines) + "\n")
     return path
@@ -143,10 +161,15 @@ def aut_extras_table(results_dir: Path, figures_dir: Path) -> Path | None:
         "\\begin{tabular}{llccc}", "\\toprule",
         "Model & Defense & Deprecated only & Restricted only & Timed \\\\", "\\midrule",
     ]
+    auts = {(m, d, c): pd.read_csv(results_dir / f"{cell_name(m, d, c)}_aut.csv")["aut_f1"]
+            for m in MODELS for d in DEFENSES for c in EXTRA_CONDITIONS}
+    shown = {}
+    for m in MODELS:  # best defense per model and condition
+        for c in EXTRA_CONDITIONS:
+            shown.update(bold_best({(m, d, c): auts[(m, d, c)] for d in DEFENSES}))
     for model in MODELS:
         for defense in DEFENSES:
-            values = " & ".join(_mean_std(results_dir, cell_name(model, defense, c))
-                                for c in EXTRA_CONDITIONS)
+            values = " & ".join(shown[(model, defense, c)] for c in EXTRA_CONDITIONS)
             lines.append(f"{MODEL_LABELS[model]} & {DEFENSE_LABELS[defense]} & {values} \\\\")
         lines.append("\\midrule" if model != MODELS[-1] else "\\bottomrule")
     lines.append("\\end{tabular}")
@@ -163,6 +186,7 @@ def make_all(results_dir: Path, figures_dir: Path) -> list[Path]:
     out: list[Path] = []
     for model in MODELS:
         out += f1_decay(results_dir, figures_dir, model)
+        out += decay(results_dir, figures_dir, model, "recall", "Malware recall")
     out += aut_summary(results_dir, figures_dir)
     out.append(aut_table(results_dir, figures_dir))
     extras = aut_extras_table(results_dir, figures_dir)
