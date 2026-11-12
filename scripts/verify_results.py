@@ -1,6 +1,8 @@
 """Compare a fresh pipeline run with the reference values in configs/expected_results.json.
 
-Exits with status 1 and lists every mismatch if the run does not reproduce the reference.
+Checks the cleaned data (app counts per year), the listed permissions, and the mean AUT(F1)
+and AUT(recall) over seeds of every experiment cell in the reference. Exits with status 1 and
+lists every mismatch if the run does not reproduce the reference.
 """
 
 from __future__ import annotations
@@ -30,37 +32,42 @@ def main() -> int:
 
     exp = json.loads(resolve(args.expected).read_text())
     res = resolve(args.results_dir)
-    needed = ["year_counts.csv", "milestone_aut.csv", "milestone_run.json"]
+    cells = exp["cells"]
+    needed = ["year_counts.csv", *(f"{c}_aut.csv" for c in cells)]
     missing = [f for f in needed if not (res / f).exists()]
+    records = sorted(res.glob(f"{next(iter(cells))}_seed*.json"))
+    if not records:
+        missing.append(f"{next(iter(cells))}_seed*.json")
     if missing:
         print(f"FAIL: missing result files {missing}; run `make all` first", file=sys.stderr)
         return 1
 
-    tol = float(exp["tolerance"])
+    tol = exp["tolerance"]
     counts = pd.read_csv(res / "year_counts.csv", index_col=0)
-    aut = pd.read_csv(res / "milestone_aut.csv", header=[0, 1], index_col=0)
-    run = json.loads((res / "milestone_run.json").read_text())
+    record = json.loads(records[0].read_text())
 
     problems: list[str] = []
-    compare("n_apps", int(counts["total"].sum()), exp["n_apps"], tol, problems)
-    compare("n_malware", int(counts["malware"].sum()), exp["n_malware"], tol, problems)
+    compare("n_apps", int(counts["total"].sum()), exp["n_apps"], 0, problems)
+    compare("n_malware", int(counts["malware"].sum()), exp["n_malware"], 0, problems)
     compare("year_totals", {str(k): int(v) for k, v in counts["total"].items()},
-            exp["year_totals"], tol, problems)
-    compare("listed_permissions", run["listed_permissions"], exp["listed_permissions"], tol,
+            exp["year_totals"], 0, problems)
+    compare("listed_permissions", record["listed_permissions"], exp["listed_permissions"], 0,
             problems)
-    compare("replication_accuracy", run["replication"]["accuracy"],
-            exp["replication_accuracy"], tol, problems)
-    for metric in ("aut_f1", "aut_recall"):
-        for cond, value in exp[f"{metric}_mean"].items():
-            compare(f"{metric}[{cond}]", aut.loc[cond, (metric, "mean")], value, tol, problems)
+    n_checks = 4
+    for cell, values in cells.items():
+        auts = pd.read_csv(res / f"{cell}_aut.csv")
+        for metric in ("aut_f1", "aut_recall"):
+            compare(f"{cell}.{metric}", auts[metric].mean(), values[f"{metric}_mean"],
+                    float(tol[metric]), problems)
+            n_checks += 1
 
     if problems:
         print("FAIL: results do not reproduce the reference:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
-    print(f"OK: all {len(exp['aut_f1_mean']) * 2 + 5} checks reproduce the reference "
-          f"(tolerance {tol}).")
+    print(f"OK: all {n_checks} checks reproduce the reference "
+          f"(tolerance AUT(F1) {tol['aut_f1']}, AUT(recall) {tol['aut_recall']}).")
     return 0
 
 

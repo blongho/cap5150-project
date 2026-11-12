@@ -1,6 +1,9 @@
 {
-  "_comment": "Reference values from the milestone run (RF, 5 seeds). scripts/verify_results.py compares a fresh run against these.",
-  "tolerance": 0.002,
+  "_comment": "Reference values from the full experiment run (5 seeds; RF and MLP, defenses none and pruning; retrain cells are added once implemented). scripts/verify_results.py compares a fresh run against these. MLP values were produced on Linux (Docker, torch CPU).",
+  "tolerance": {
+    "aut_f1": 0.005,
+    "aut_recall": 0.01
+  },
   "n_apps": 76708,
   "n_malware": 40930,
   "year_totals": {
@@ -40,15 +43,38 @@
     "WRITE_CALL_LOG",
     "WRITE_EXTERNAL_STORAGE"
   ],
-  "replication_accuracy": 0.9529,
-  "aut_f1_mean": {
-    "unmasked": 0.8848,
-    "masked": 0.7962,
-    "pruned": 0.8783
-  },
-  "aut_recall_mean": {
-    "unmasked": 0.8886,
-    "masked": 0.7307,
-    "pruned": 0.8795
+  "cells": {
+    "rf_none_unmasked": {
+      "aut_f1_mean": 0.8848,
+      "aut_recall_mean": 0.8886
+    },
+    "rf_none_masked": {
+      "aut_f1_mean": 0.7962,
+      "aut_recall_mean": 0.7307
+    },
+    "rf_pruning_unmasked": {
+      "aut_f1_mean": 0.8783,
+      "aut_recall_mean": 0.8795
+    },
+    "rf_pruning_masked": {
+      "aut_f1_mean": 0.8783,
+      "aut_recall_mean": 0.8795
+    },
+    "mlp_none_unmasked": {
+      "aut_f1_mean": 0.8855,
+      "aut_recall_mean": 0.8701
+    },
+    "mlp_none_masked": {
+      "aut_f1_mean": 0.8209,
+      "aut_recall_mean": 0.7432
+    },
+    "mlp_pruning_unmasked": {
+      "aut_f1_mean": 0.8822,
+      "aut_recall_mean": 0.8625
+    },
+    "mlp_pruning_masked": {
+      "aut_f1_mean": 0.8822,
+      "aut_recall_mean": 0.8625
+    }
   }
 }

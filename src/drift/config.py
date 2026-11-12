@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-REQUIRED_SECTIONS = ("data", "permissions", "split", "model", "experiment", "replication")
+REQUIRED_SECTIONS = ("data", "permissions", "split", "model", "experiment")
 
 
 class ConfigError(ValueError):

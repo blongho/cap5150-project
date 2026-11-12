@@ -1,0 +1,168 @@
+"""Full experiment grid: model x defense x condition x seed.
+
+Each run trains on years <= split.train_end_year and scores every test year. It writes one
+Run_Record JSON per (model, defense, condition, seed); runs whose record already exists are
+skipped. Once every seed of a cell is present, two aggregate CSVs are written:
+
+    {model}_{defense}_{condition}.csv      per-year mean and std over seeds
+    {model}_{defense}_{condition}_aut.csv  AUT(F1), AUT(recall), AUT(FPR) per seed
+
+Conditions: `unmasked` scores the test data as is; `masked` zeroes the listed permissions at
+test time. Defenses: `none`; `pruning` removes the listed permissions from training and test
+data; `retrain` (5% labelled budget per test year) is not implemented yet and is skipped.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from drift.config import resolve
+from drift.data import LABEL, permission_columns, time_split
+from drift.features import mask, prune
+from drift.metrics import aut, detection_metrics
+from drift.models import build_model
+from drift.permissions import select
+from drift.runinfo import run_info
+
+log = logging.getLogger(__name__)
+
+MODELS = ("rf", "mlp")
+DEFENSES = ("none", "pruning", "retrain")
+CONDITIONS = ("unmasked", "masked")
+# Config section holding each model's build_model settings.
+MODEL_SECTIONS = {"rf": "model", "mlp": "mlp"}
+METRICS = ("f1", "recall", "precision", "fpr", "accuracy")
+AUT_METRICS = ("f1", "recall", "fpr")
+NOT_IMPLEMENTED = {"retrain"}
+
+
+def cell_name(model: str, defense: str, condition: str) -> str:
+    return f"{model}_{defense}_{condition}"
+
+
+def record_path(results_dir: Path, model: str, defense: str, condition: str, seed: int) -> Path:
+    return results_dir / f"{cell_name(model, defense, condition)}_seed{seed}.json"
+
+
+def features(X: pd.DataFrame, listed: list[str], condition: str, defense: str) -> pd.DataFrame:
+    """Apply the test condition (masking) and then the defense (pruning) to a feature frame."""
+    if condition == "masked":
+        X = mask(X, listed)
+    if defense == "pruning":
+        X = prune(X, listed)
+    return X
+
+
+def _validate(models, defenses, conditions, cfg: dict[str, Any]) -> None:
+    for kind, given, allowed in (("model", models, MODELS), ("defense", defenses, DEFENSES),
+                                 ("condition", conditions, CONDITIONS)):
+        unknown = sorted(set(given) - set(allowed))
+        if unknown:
+            raise ValueError(f"Unknown {kind}(s) {unknown}; choose from {list(allowed)}")
+    for m in models:
+        if MODEL_SECTIONS[m] not in cfg:
+            raise ValueError(f"Config has no `{MODEL_SECTIONS[m]}` section for model {m!r}")
+    if "mlp" in models and importlib.util.find_spec("torch") is None:
+        raise RuntimeError(
+            "The mlp model needs PyTorch, which is not installed here (no wheels for Intel "
+            "macOS). Run in Docker or Colab, or pass --models rf."
+        )
+
+
+def _score(model, tests: dict[int, pd.DataFrame], perms, listed, condition, defense) -> dict:
+    out = {}
+    for year, test in tests.items():
+        X = features(test[perms], listed, condition, defense)
+        out[str(year)] = detection_metrics(test[LABEL].to_numpy(), model.predict(X))
+    return out
+
+
+def run_experiments(
+    cfg: dict[str, Any],
+    models=MODELS,
+    defenses=DEFENSES,
+    conditions=CONDITIONS,
+) -> list[Path]:
+    """Run every missing (model, defense, condition, seed) and return the records written."""
+    _validate(models, defenses, conditions, cfg)
+    results_dir = resolve(cfg["experiment"]["results_dir"])
+    results_dir.mkdir(parents=True, exist_ok=True)
+    seeds = cfg["experiment"]["seeds"]
+
+    df = pd.read_parquet(resolve(cfg["data"]["processed_path"]))
+    perms = permission_columns(df.columns)
+    p = cfg["permissions"]
+    table = pd.read_csv(resolve(p["list_path"]))
+    listed = select(table, p["categories"], p["min_api"], p["max_api"])
+    split = cfg["split"]
+    train, tests = time_split(df, split["train_end_year"], split["test_years"])
+    info = run_info()
+
+    for defense in sorted(set(defenses) & NOT_IMPLEMENTED):
+        log.warning("defense=%s is not implemented yet; skipping it", defense)
+    active = [d for d in defenses if d not in NOT_IMPLEMENTED]
+
+    written: list[Path] = []
+    for model_name in models:
+        model_cfg = cfg[MODEL_SECTIONS[model_name]]
+        for defense in active:
+            for seed in seeds:
+                todo = [c for c in conditions
+                        if not record_path(results_dir, model_name, defense, c, seed).exists()]
+                if not todo:
+                    log.info("model=%s defense=%s seed=%d exists, skipped",
+                             model_name, defense, seed)
+                    continue
+                X_train = features(train[perms], listed, "unmasked", defense)
+                model = build_model(model_cfg, seed).fit(X_train, train[LABEL])
+                for condition in todo:
+                    per_year = _score(model, tests, perms, listed, condition, defense)
+                    record = {
+                        "model": model_name, "defense": defense, "condition": condition,
+                        "seed": seed, **info, "listed_permissions": listed,
+                        "n_features": int(X_train.shape[1]), "n_train": int(len(train)),
+                        "aut": {m: aut([per_year[str(y)][m] for y in tests])
+                                for m in AUT_METRICS},
+                        "per_year": per_year, "config": cfg,
+                    }
+                    path = record_path(results_dir, model_name, defense, condition, seed)
+                    path.write_text(json.dumps(record, indent=2, default=float))
+                    written.append(path)
+                    log.info("model=%s defense=%s condition=%s seed=%d done",
+                             model_name, defense, condition, seed)
+
+    for model_name in models:
+        for defense in active:
+            for condition in conditions:
+                write_aggregates(results_dir, model_name, defense, condition, seeds)
+    return written
+
+
+def write_aggregates(results_dir: Path, model: str, defense: str, condition: str,
+                     seeds: list[int]) -> bool:
+    """Write the cell's per-year and per-seed AUT CSVs; False if a seed's record is missing."""
+    paths = [record_path(results_dir, model, defense, condition, s) for s in seeds]
+    missing = [p.name for p in paths if not p.exists()]
+    if missing:
+        log.warning("%s: missing %s; aggregates not written",
+                    cell_name(model, defense, condition), missing)
+        return False
+    records = [json.loads(p.read_text()) for p in paths]
+
+    rows = [{"seed": r["seed"], "year": int(y), **{m: v[m] for m in METRICS}}
+            for r in records for y, v in r["per_year"].items()]
+    per_year = pd.DataFrame(rows).groupby("year")[list(METRICS)].agg(["mean", "std"])
+    per_year.columns = [f"{m}_{stat}" for m, stat in per_year.columns]
+    name = cell_name(model, defense, condition)
+    per_year.round(6).to_csv(results_dir / f"{name}.csv")
+
+    auts = pd.DataFrame([{"seed": r["seed"], **{f"aut_{m}": r["aut"][m] for m in AUT_METRICS}}
+                         for r in records])
+    auts.round(6).to_csv(results_dir / f"{name}_aut.csv", index=False)
+    return True

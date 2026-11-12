@@ -1,0 +1,110 @@
+"""Integration smoke test for the experiment runner on a tiny synthetic dataset."""
+
+import importlib.util
+import json
+
+import numpy as np
+import pandas as pd
+import pytest
+import yaml
+
+from drift.config import load_config, resolve
+from drift.data import EXPECTED_PERMISSIONS, FIRST_PERMISSION, HASH, LABEL, LAST_PERMISSION, YEAR
+from drift.experiments import cell_name, record_path, run_experiments
+
+PERMISSION_LIST = resolve("data/deprecated_permissions.csv")
+SEEDS = [0, 1]
+YEARS = [2010, 2011, 2012, 2013, 2014]
+DEFENSES = ["none", "pruning"]
+CONDITIONS = ["unmasked", "masked"]
+MODELS = ["rf", pytest.param("mlp", marks=pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None, reason="torch is not installed"))]
+
+
+def _permission_names() -> list[str]:
+    """166 KronoDroid-style names that include every listed permission."""
+    listed = sorted(set(pd.read_csv(PERMISSION_LIST)["permission"])
+                    - {FIRST_PERMISSION, LAST_PERMISSION})
+    filler = [f"FILLER_{i}" for i in range(EXPECTED_PERMISSIONS - 2 - len(listed))]
+    return [FIRST_PERMISSION, *listed, *filler, LAST_PERMISSION]
+
+
+@pytest.fixture
+def cfg(tmp_path):
+    """Config pointing at a 50-sample synthetic parquet (10 per year, both classes)."""
+    rng = np.random.default_rng(0)
+    perms = _permission_names()
+    n = 50
+    labels = np.tile([0, 1], n // 2)
+    X = rng.integers(0, 2, size=(n, len(perms)))
+    X[:, 1] = labels  # one learnable signal
+    df = pd.DataFrame(X, columns=perms).astype("int8")
+    df.insert(0, HASH, [f"h{i}" for i in range(n)])
+    df.insert(1, LABEL, labels)
+    df[YEAR] = np.repeat(YEARS, n // len(YEARS))
+    parquet = tmp_path / "data.parquet"
+    df.to_parquet(parquet)
+
+    base = load_config(resolve("configs/base.yaml"))
+    base["data"].update(processed_path=str(parquet), min_year=YEARS[0], max_year=YEARS[-1])
+    base["permissions"]["list_path"] = str(PERMISSION_LIST)
+    base["split"] = {"train_end_year": 2012, "test_years": [2013, 2014]}
+    base["model"].update(n_estimators=5, n_jobs=1)
+    base["mlp"].update(hidden_size=8, epochs=3)
+    base["experiment"].update(seeds=SEEDS, results_dir=str(tmp_path / "results"))
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(base))
+    return load_config(path)
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_runner_writes_records_and_skips_existing(cfg, model):
+    written = run_experiments(cfg, [model], DEFENSES, CONDITIONS)
+    results = resolve(cfg["experiment"]["results_dir"])
+    assert len(written) == len(DEFENSES) * len(CONDITIONS) * len(SEEDS)
+
+    for defense in DEFENSES:
+        for condition in CONDITIONS:
+            for seed in SEEDS:
+                rec = json.loads(record_path(results, model, defense, condition, seed).read_text())
+                for key in ("git_commit", "seed", "model", "condition", "defense",
+                            "python_version", "sklearn_version", "torch_version",
+                            "pandas_version", "config", "per_year", "aut"):
+                    assert key in rec
+                assert (rec["model"], rec["defense"], rec["condition"], rec["seed"]) == (
+                    model, defense, condition, seed)
+                assert sorted(rec["per_year"]) == ["2013", "2014"]
+            name = cell_name(model, defense, condition)
+            per_year = pd.read_csv(results / f"{name}.csv")
+            assert list(per_year["year"]) == [2013, 2014]
+            assert {"f1_mean", "f1_std", "recall_mean", "fpr_mean"} <= set(per_year.columns)
+            assert sorted(pd.read_csv(results / f"{name}_aut.csv")["seed"]) == SEEDS
+
+    before = {p.name: p.stat().st_mtime_ns for p in results.glob("*.json")}
+    assert run_experiments(cfg, [model], DEFENSES, CONDITIONS) == []
+    after = {p.name: p.stat().st_mtime_ns for p in results.glob("*.json")}
+    assert after == before
+
+
+def test_pruning_drops_listed_features_and_ignores_masking(cfg):
+    run_experiments(cfg, ["rf"], ["none", "pruning"], CONDITIONS)
+    results = resolve(cfg["experiment"]["results_dir"])
+    none = json.loads(record_path(results, "rf", "none", "unmasked", 0).read_text())
+    pruned_u = json.loads(record_path(results, "rf", "pruning", "unmasked", 0).read_text())
+    pruned_m = json.loads(record_path(results, "rf", "pruning", "masked", 0).read_text())
+    assert none["n_features"] == EXPECTED_PERMISSIONS
+    assert pruned_u["n_features"] == EXPECTED_PERMISSIONS - len(none["listed_permissions"])
+    # With the listed permissions removed, masking them changes nothing.
+    assert pruned_u["per_year"] == pruned_m["per_year"]
+
+
+def test_retrain_is_skipped_until_implemented(cfg, caplog):
+    assert run_experiments(cfg, ["rf"], ["retrain"], ["unmasked"]) == []
+    assert "not implemented" in caplog.text
+
+
+def test_unknown_names_are_rejected(cfg):
+    with pytest.raises(ValueError, match="Unknown model"):
+        run_experiments(cfg, ["svm"], ["none"], ["unmasked"])
+    with pytest.raises(ValueError, match="Unknown condition"):
+        run_experiments(cfg, ["rf"], ["none"], ["timed"])

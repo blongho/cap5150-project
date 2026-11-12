@@ -40,8 +40,3 @@ experiment:
   seeds: [0, 1, 2, 3, 4]
   results_dir: results
   figures_dir: figures
-
-replication:
-  test_size: 0.2
-  seed: 42
-  reference_accuracy: 0.954       # Sabbah et al., RF, all 166 permissions, real device

@@ -7,7 +7,7 @@
 #   make data        download KronoDroid + AOSP manifests and verify SHA-256 checksums
 #   make permissions build data/deprecated_permissions.csv from the AOSP manifests
 #   make prepare     clean the data -> data/processed/real_device.parquet
-#   make milestone   run the milestone experiments -> results/, figures/
+#   make experiments run the full grid (model x defense x condition x seed) -> results/
 #   make verify      compare results/ with configs/expected_results.json
 #   make check       lint + unit tests
 #   make lock        regenerate requirements.lock from requirements.txt
@@ -27,7 +27,7 @@ PY  := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 RUN := PYTHONHASHSEED=0 PYTHONPATH=src $(PY)
 
-.PHONY: help reproduce setup check-python data permissions prepare milestone verify all \
+.PHONY: help reproduce setup check-python data permissions prepare experiments verify all \
         test lint check lock docker-build docker-reproduce clean clean-data
 
 help:
@@ -60,10 +60,10 @@ permissions: data
 prepare: data
 	$(RUN) scripts/prepare_data.py --config $(CONFIG)
 
-milestone: prepare permissions
-	$(RUN) scripts/run_milestone.py --config $(CONFIG)
+experiments: prepare permissions
+	$(RUN) scripts/run_experiments.py --config $(CONFIG)
 
-all: milestone
+all: experiments
 
 verify: setup
 	$(RUN) scripts/verify_results.py
