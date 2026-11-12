@@ -15,3 +15,6 @@ cap5150_project-proposal.pdf
 implementation-plan.md  
 pytest-cache-files-*/
 **outputs
+src/drift.egg-info/
+.kiro/
+AGENT_HANDOFF.md

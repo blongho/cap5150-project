@@ -1,5 +1,7 @@
 # Direct dependencies. Supported Python: 3.10-3.13.
 # The exact environment (including transitive packages) is pinned in requirements.lock.
+# CPU-only PyTorch wheels (avoids multi-GB CUDA packages on Linux).
+--extra-index-url https://download.pytorch.org/whl/cpu
 numpy==2.1.3
 pandas==2.2.3
 scikit-learn==1.5.2
@@ -7,6 +9,8 @@ scipy==1.14.1
 matplotlib==3.9.2
 pyyaml==6.0.2
 pyarrow==18.1.0
+# CPU build; skipped on Intel macOS, which has no wheels (use Docker or Colab there)
+torch==2.7.1 ; platform_system != "Darwin" or platform_machine != "x86_64"
 # dev
 pytest==8.3.3
 ruff==0.6.9

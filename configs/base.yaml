@@ -25,6 +25,17 @@ model:
   class_weight: balanced
   n_jobs: -1
 
+# Second model for the full experiments; passed to build_model like `model`.
+mlp:
+  name: mlp
+  hidden_size: 256                # units in each of the two hidden layers
+  dropout: 0.3                    # dropout after each hidden layer
+  epochs: 50                      # maximum training epochs
+  lr: 1.0e-3                      # Adam learning rate
+  patience: 5                     # stop after this many epochs without lower validation loss
+  batch_size: 256                 # mini-batch size
+  val_fraction: 0.1               # share of training data held out for early stopping
+
 experiment:
   seeds: [0, 1, 2, 3, 4]
   results_dir: results

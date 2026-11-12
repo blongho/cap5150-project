@@ -1,16 +1,23 @@
 # Full dependency lock (direct + transitive) for Python 3.10-3.13, from requirements.txt.
 # Install with: pip install -r requirements.lock   (make setup does this)
 # Regenerate with: make lock
-PyYAML==6.0.2
+# torch and its dependencies are skipped on Intel macOS, where PyTorch ships no wheels.
+--extra-index-url https://download.pytorch.org/whl/cpu
 cloudpickle==3.1.2
 contourpy==1.3.2
 cycler==0.12.1
 exceptiongroup==1.3.1 ; python_version < "3.11"
+filelock==4.1.0 ; platform_system != "Darwin" or platform_machine != "x86_64"
 fonttools==4.65.0
+fsspec==2026.9.0 ; platform_system != "Darwin" or platform_machine != "x86_64"
 iniconfig==2.3.1
+Jinja2==3.1.6 ; platform_system != "Darwin" or platform_machine != "x86_64"
 joblib==1.6.0
 kiwisolver==1.5.1
+MarkupSafe==3.0.4 ; platform_system != "Darwin" or platform_machine != "x86_64"
 matplotlib==3.9.2
+mpmath==1.3.0 ; platform_system != "Darwin" or platform_machine != "x86_64"
+networkx==3.4.2 ; platform_system != "Darwin" or platform_machine != "x86_64"
 numpy==2.1.3
 packaging==26.3
 pandas==2.2.3
@@ -21,11 +28,15 @@ pyparsing==3.3.3
 pytest==8.3.3
 python-dateutil==2.9.0.post0
 pytz==2026.5
+PyYAML==6.0.2
 ruff==0.6.9
 scikit-learn==1.5.2
 scipy==1.14.1
+setuptools==84.2.1 ; platform_system != "Darwin" or platform_machine != "x86_64"
 six==1.17.0
+sympy==1.14.0 ; platform_system != "Darwin" or platform_machine != "x86_64"
 threadpoolctl==3.7.0
 tomli==2.5.0 ; python_version < "3.11"
-typing_extensions==4.16.0 ; python_version < "3.11"
+torch==2.7.1 ; platform_system != "Darwin" or platform_machine != "x86_64"
+typing_extensions==4.16.0
 tzdata==2026.5
