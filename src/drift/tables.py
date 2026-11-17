@@ -6,7 +6,7 @@ was not run). Written to the figures directory next to the figures:
     numbers.tex             \\newcommand macros: dataset size, replication accuracy
     dataset_table.tex       apps per year, malware share and role (results/year_counts.csv)
     settings_table.tex      model, defense and protocol settings (config in a run record)
-    hypothesis_table.tex    H1-H3 Wilcoxon results     (results/hypothesis_tests.csv)
+    hypothesis_table.tex    RQ1-RQ3 Wilcoxon results    (results/hypothesis_tests.csv)
     share10_table.tex       10% malware-share variant  (results/*_10pct_aut.csv)
     ks_table.tex            KS drift per test year     (results/ks_tests.csv, ks_scores.csv)
     masking_table.tex       request rates around each change year (results/masking_check.csv)
@@ -143,7 +143,8 @@ def hypothesis_table(results_dir: Path, out_dir: Path) -> Path | None:
     rows = []
     for h, g in t.groupby("hypothesis", sort=True):
         first = g.iloc[0]
-        rows.append(f"{h} & {side(first.a)} $>$ {side(first.b)} & "
+        label = h.replace("H", "RQ", 1)  # stored IDs H1-H3 are shown as research questions
+        rows.append(f"{label} & {side(first.a)} $>$ {side(first.b)} & "
                     + " & ".join(stats(h, m) for m in models) + " \\\\")
     groups = " & ".join(f"\\multicolumn{{4}}{{c}}{{{MODEL_LABELS[m]}}}" for m in models)
     rules = " ".join(f"\\cmidrule(lr){{{3 + 4 * i}-{6 + 4 * i}}}" for i in range(len(models)))
@@ -152,7 +153,7 @@ def hypothesis_table(results_dir: Path, out_dir: Path) -> Path | None:
     path.write_text("\n".join([
         "\\begin{tabular}{ll" + "cccc" * len(models) + "}", "\\toprule",
         f" & & {groups} \\\\", rules,
-        f"Hyp. & Comparison ($a > b$) & {sub} \\\\", "\\midrule",
+        f"RQ & Comparison ($a > b$) & {sub} \\\\", "\\midrule",
         *rows, "\\bottomrule", "\\end{tabular}",
     ]) + "\n")
     return path

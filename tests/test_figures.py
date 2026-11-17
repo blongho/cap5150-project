@@ -90,7 +90,7 @@ def test_report_tables_from_results(results, tmp_path):
     assert "\\newcommand{\\NApps}{40}" in (out / "numbers.tex").read_text()
     assert "1 / 2 & 1 / 1 & 0.400" in (out / "ks_table.tex").read_text()
     hyp = (out / "hypothesis_table.tex").read_text()
-    assert ("H1 & None, unmasked $>$ None, masked & \\textbf{0.900} & 0.800 & \\textbf{0.031} & "
+    assert ("RQ1 & None, unmasked $>$ None, masked & \\textbf{0.900} & 0.800 & \\textbf{0.031} & "
             "$+1.00$ & \\textbf{0.880} & 0.850 & 0.200 & $+0.40$ \\\\") in hyp
     masking = (out / "masking_table.tex").read_text()
     assert "\\texttt{GET\\_TASKS} & 2014 & 19 $\\to$ 57 & 10 $\\to$ --" in masking
