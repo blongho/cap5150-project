@@ -23,6 +23,13 @@ Choose **one** of these setups:
 Both need internet access on the first run (about 100 MB of data) and about 2 GB of disk.
 No GPU is needed.
 
+> **Intel Mac users: use Docker (setup B).** PyTorch publishes no builds for Intel macOS, so
+> setup A cannot install it there. `make reproduce` then installs everything else, runs the
+> random forest, and stops with `ModuleNotFoundError: No module named 'torch'` when it reaches
+> the MLP. Docker runs the whole pipeline in a Linux container with the same pinned packages
+> and commands; it is the setup used to verify this repository on an Intel Mac. Start Docker
+> Desktop before running the commands in setup B.
+
 ## 2. Reproduce everything
 
 ### A. Local
@@ -125,7 +132,8 @@ changed configuration.
 | Problem | Fix |
 | --- | --- |
 | `Python 3.10-3.13 is required` | Install a supported version and pass it: `make reproduce PYTHON=python3.12` |
-| PyTorch fails to install on an Intel Mac | Use the Docker setup (B) |
+| `No module named 'torch'` (Intel Mac) | PyTorch has no Intel-Mac builds; use the Docker setup (B) |
+| `Cannot connect to the Docker daemon` | Start Docker Desktop, wait until it is running, and repeat the command |
 | The run was interrupted | Run the same command again; finished runs are reused |
 | You want to start over | `make clean` deletes `results/` and `figures/`; `make clean-data` deletes the downloaded data |
 | A download fails or a checksum does not match | Check your connection and run `make clean-data`, then `make data` |
