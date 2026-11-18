@@ -3,7 +3,7 @@ data/raw/
 data/processed/
 results/
 figures/
-paper/**/*.pdf
+paper/
 .git/
 **/__pycache__/
 .pytest_cache/

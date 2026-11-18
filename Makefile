@@ -8,7 +8,7 @@
 #   make permissions build data/deprecated_permissions.csv from the AOSP manifests
 #   make prepare     clean the data -> data/processed/real_device.parquet
 #   make experiments run the full grid (model x defense x condition x seed) -> results/
-#   make stats       Wilcoxon tests of H1-H3 -> results/hypothesis_tests.csv
+#   make stats       Wilcoxon tests of RQ1-RQ3 -> results/hypothesis_tests.csv
 #   make ks_tests    KS drift tests per permission and on RF scores -> results/ks_*.csv
 #   make analysis    replication and masking checks -> results/replication.json, masking_check.csv
 #   make figures     report figures and LaTeX tables from results/ -> figures/
