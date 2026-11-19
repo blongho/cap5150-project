@@ -227,6 +227,13 @@ def run_experiments(
     if exp.get("malware_share_10pct", False):
         variants.append(("_10pct", [c for c in conditions if c in CORE_CONDITIONS]))
 
+    # Progress counter over every run in the grid; finished runs count as done.
+    grid = [(m, d, s, v, c) for m in models for d in defenses for s in seeds
+            for v, conds in variants for c in conds]
+    total = len(grid)
+    n_done = sum(record_path(results_dir, m, d, c, s, v).exists() for m, d, s, v, c in grid)
+    log.info("experiment runs: %d of %d already done, %d to run", n_done, total, total - n_done)
+
     written: list[Path] = []
     for model_name in models:
         model_cfg = cfg[MODEL_SECTIONS[model_name]]
@@ -266,8 +273,9 @@ def run_experiments(
                                        variant)
                     path.write_text(json.dumps(record, indent=2, default=float))
                     written.append(path)
-                    log.info("model=%s defense=%s condition=%s%s seed=%d done",
-                             model_name, defense, condition, variant, seed)
+                    n_done += 1
+                    log.info("[%d/%d] model=%s defense=%s condition=%s%s seed=%d done",
+                             n_done, total, model_name, defense, condition, variant, seed)
 
     for model_name in models:
         for defense in defenses:

@@ -13,62 +13,69 @@ checks the results against stored reference values.
 
 ## 1. Requirements
 
-Choose **one** of these setups:
+You need `git`, `make` and **one** of:
 
-| Setup | You need | Use it when |
+| Setup | You need | Used on |
 | --- | --- | --- |
-| **A. Local** | Python 3.10–3.13, `make`, `git` | Linux, Apple-silicon Mac, or Windows with WSL |
-| **B. Docker** | Docker, `make`, `git` | Intel Mac (PyTorch has no Intel-Mac builds), or you want the exact environment used for the paper |
+| **A. Local** | Python 3.10–3.13 | Linux, Apple-silicon Mac, Windows with WSL |
+| **B. Docker** | Docker (Docker Desktop on a Mac) | Intel Mac, or for the exact environment used for the paper |
 
 Both need internet access on the first run (about 100 MB of data) and about 2 GB of disk.
 No GPU is needed.
 
-> **Intel Mac users: use Docker (setup B).** PyTorch publishes no builds for Intel macOS, so
-> setup A cannot install it there. `make reproduce` then installs everything else, runs the
-> random forest, and stops with `ModuleNotFoundError: No module named 'torch'` when it reaches
-> the MLP. Docker runs the whole pipeline in a Linux container with the same pinned packages
-> and commands; it is the setup used to verify this repository on an Intel Mac. Start Docker
-> Desktop before running the commands in setup B.
+> **Intel Mac users: Docker is required.** PyTorch publishes no builds for Intel macOS, so
+> setup A cannot install it there: the run would stop with
+> `ModuleNotFoundError: No module named 'torch'` when it reaches the MLP. `make run` detects an
+> Intel Mac and uses Docker automatically. Start Docker Desktop first. Docker runs the same
+> pinned packages and commands in a Linux container, and it is the setup used to verify this
+> repository on an Intel Mac.
 
 ## 2. Reproduce everything
 
-### A. Local
-
 ```bash
 git clone https://github.com/blongho/cap5150-project.git
 cd cap5150-project
-make reproduce
+make run
 ```
 
-If your default `python3` is not 3.10–3.13, name one that is:
+`make run` is the one command for every system. It uses Docker on an Intel Mac and the local
+setup everywhere else, runs the whole pipeline, and prints the total time at the end.
 
-```bash
-make reproduce PYTHON=python3.12
+To choose the setup yourself instead:
+
+| Setup | Command |
+| --- | --- |
+| A. Local | `make reproduce` (add `PYTHON=python3.12` if your default `python3` is not 3.10–3.13) |
+| B. Docker | `make docker-build`, then `make docker-reproduce` |
+
+### What you will see
+
+The pipeline runs in 11 stages and prints a timestamped line as each one starts:
+
+```
+==> [10:02:14] Stage 1/11: Environment ready (.venv)
+==> [10:02:15] Stage 2/11: Downloading data and verifying checksums
+...
+==> [10:04:40] Stage 5/11: Running experiments - the longest stage; progress shown as [run/total]
+INFO drift.experiments: [57/210] model=rf defense=retrain condition=masked seed=1 done
+...
+==> [10:31:52] Stage 11/11: Lint and unit tests
 ```
 
-### B. Docker
+| Stage | What it does |
+| --- | --- |
+| 1 | Creates a virtual environment and installs the pinned packages (first run only) |
+| 2 | Downloads KronoDroid and the Android framework manifests and checks their SHA-256 hashes |
+| 3 | Derives the 20 deprecated or restricted permissions |
+| 4 | Cleans the data |
+| 5 | Runs all 210 experiment runs (2 models × 3 defenses × 7 test conditions × 5 seeds) |
+| 6–8 | Statistical tests, drift tests, replication check |
+| 9 | Builds the figures and LaTeX tables |
+| 10 | Compares the results with `configs/expected_results.json` |
+| 11 | Runs the linter and unit tests |
 
-```bash
-git clone https://github.com/blongho/cap5150-project.git
-cd cap5150-project
-make docker-build       # once: builds the image with Python 3.11 and pinned packages
-make docker-reproduce   # runs `make reproduce` inside the container
-```
-
-### What happens
-
-`make reproduce` runs these stages in order:
-
-1. Creates a virtual environment in `.venv/` and installs the pinned packages from
-   `requirements.lock`.
-2. Downloads KronoDroid and the Android framework manifests, and checks their SHA-256 hashes.
-3. Derives the 20 deprecated or restricted permissions and cleans the data.
-4. Runs all 210 experiment runs (2 models × 3 defenses × test conditions × 5 seeds).
-5. Runs the statistical tests and analyses, then builds the figures and LaTeX tables.
-6. Compares the results with `configs/expected_results.json`.
-7. Runs the linter and unit tests.
-
-A full run takes about 30 minutes on a 2019 MacBook Pro (8-core Intel Core i9, 32 GB RAM).
+A full run takes about 30 minutes on a 2019 MacBook Pro (8-core Intel Core i9, 32 GB RAM),
+most of it in stage 5.
 
 ### How to tell it worked
 
@@ -77,10 +84,11 @@ The run ends with these lines:
 ```
 OK: all <n> checks reproduce the reference ...
 Reproduction complete: results/ and figures/ match configs/expected_results.json.
+==> Finished in <m> min
 ```
 
-If any result differs, `make verify` prints `FAIL` with a list of the mismatched values and
-stops with an error.
+If any result differs, stage 10 prints `FAIL` with a list of the mismatched values and stops
+with an error.
 
 ## 3. Outputs
 
@@ -110,6 +118,7 @@ runs are reused, so repeating a command is quick.
 | `make figures` | Build figures and tables |
 | `make verify` | Compare results with the reference values |
 | `make check` | Lint and unit tests |
+| `make run` | Everything, choosing local or Docker automatically |
 | `make help` | List all commands |
 
 ## 5. Settings
@@ -132,8 +141,8 @@ changed configuration.
 | Problem | Fix |
 | --- | --- |
 | `Python 3.10-3.13 is required` | Install a supported version and pass it: `make reproduce PYTHON=python3.12` |
-| `No module named 'torch'` (Intel Mac) | PyTorch has no Intel-Mac builds; use the Docker setup (B) |
-| `Cannot connect to the Docker daemon` | Start Docker Desktop, wait until it is running, and repeat the command |
+| `No module named 'torch'` (Intel Mac) | PyTorch has no Intel-Mac builds; use `make run` or the Docker setup (B) |
+| `Docker is not running` or `Cannot connect to the Docker daemon` | Start Docker Desktop, wait until it is running, and repeat the command |
 | The run was interrupted | Run the same command again; finished runs are reused |
 | You want to start over | `make clean` deletes `results/` and `figures/`; `make clean-data` deletes the downloaded data |
 | A download fails or a checksum does not match | Check your connection and run `make clean-data`, then `make data` |
